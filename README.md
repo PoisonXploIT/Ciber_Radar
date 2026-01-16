@@ -1,6 +1,6 @@
 # CIBER-RADAR: Android Security Audit Suite
 
-![Version](https://img.shields.io/badge/version-3.1%20STABLE-neon_green) ![Flutter](https://img.shields.io/badge/Built%20with-Flutter-blue) ![License](https://img.shields.io/badge/License-MIT-purple)
+![Version](https://img.shields.io/badge/version-1.0.0%20STABLE-neon_green) ![Flutter](https://img.shields.io/badge/Built%20with-Flutter-blue) ![License](https://img.shields.io/badge/License-MIT-purple)
 
 **Ciber-Radar** es una suite de auditoría de seguridad y wardriving para Android desarrollada en Flutter. Diseñada con una estética Cyberpunk/Minimalista, permite a investigadores y entusiastas de la ciberseguridad analizar el espectro electromagnético y digital en tiempo real.
 
