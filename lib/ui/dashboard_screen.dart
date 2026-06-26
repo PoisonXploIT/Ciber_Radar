@@ -80,6 +80,18 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
       }
   }
 
+  void _exportJson() async {
+      final exportService = ExportService();
+      await exportService.shareJsonReport(
+        wifiList: widget.scannerService.sessionWifiList,
+        bleList: widget.scannerService.sessionBleList,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Reporte JSON compartido"), backgroundColor: AppTheme.primary));
+      }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Center(
@@ -164,10 +176,20 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
               OutlinedButton.icon(
                 onPressed: _exportData,
                 icon: const Icon(Icons.download, color: AppTheme.primary),
-                label: const Text("EXPORTAR A CSV", style: TextStyle(color: AppTheme.primary)),
+                label: const Text("CSV", style: TextStyle(color: AppTheme.primary)),
                 style: OutlinedButton.styleFrom(
                    side: const BorderSide(color: AppTheme.primary),
-                   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+                ),
+              ),
+              const SizedBox(width: 10),
+              OutlinedButton.icon(
+                onPressed: _exportJson,
+                icon: const Icon(Icons.share, color: AppTheme.primary),
+                label: const Text("JSON", style: TextStyle(color: AppTheme.primary)),
+                style: OutlinedButton.styleFrom(
+                   side: const BorderSide(color: AppTheme.primary),
+                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
                 ),
               ),
             ],

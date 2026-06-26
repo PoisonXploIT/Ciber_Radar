@@ -1,4 +1,3 @@
-
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/lan_service.dart';
@@ -14,11 +13,11 @@ class LanScreen extends StatefulWidget {
 
 class _LanScreenState extends State<LanScreen> {
   final LanService _lanService = LanService();
-  final List<HostModel> _hosts = [];
+  final Map<String, HostModel> _hostsMap = {};
   bool _isScanning = false;
   String _myIp = "Unknown";
   String _subnet = "Unknown";
-  
+
   StreamSubscription? _scanSubscription;
 
   @override
@@ -26,7 +25,7 @@ class _LanScreenState extends State<LanScreen> {
     super.initState();
     _initNetworkInfo();
   }
-  
+
   @override
   void dispose() {
     _scanSubscription?.cancel();
@@ -44,7 +43,7 @@ class _LanScreenState extends State<LanScreen> {
       }
     }
   }
-  
+
   void _stopScan() {
     _scanSubscription?.cancel();
     _scanSubscription = null;
@@ -60,31 +59,21 @@ class _LanScreenState extends State<LanScreen> {
        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("NO WIFI CONNECTION"), backgroundColor: AppTheme.accent));
        return;
     }
-    
-    // Stop previous scan if running
+
     _stopScan();
 
     setState(() {
-      _hosts.clear();
+      _hostsMap.clear();
       _isScanning = true;
     });
 
     try {
       final stream = _lanService.scan(_subnet);
-      
+
       _scanSubscription = stream.listen((HostModel host) {
         if (mounted) {
           setState(() {
-             // Avoid duplicates (handled by == operator in model)
-             if (!_hosts.contains(host)) {
-                 _hosts.add(host);
-             } else {
-                 // Update if name appeared primarily
-                 final index = _hosts.indexOf(host);
-                 if (_hosts[index].name == null && host.name != null) {
-                      _hosts[index] = host;
-                 }
-             }
+             _hostsMap[host.ip] = host;
           });
         }
       }, onDone: () {
@@ -103,17 +92,38 @@ class _LanScreenState extends State<LanScreen> {
       _stopScan();
     }
   }
-  
+
   void _clearResults() {
       _stopScan();
       setState(() {
-        _hosts.clear();
+        _hostsMap.clear();
       });
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("RESULTS CLEARED & SCAN STOPPED")));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("RESULTADOS BORRADOS")));
+  }
+
+  Color _riskColor(String risk) {
+    switch (risk) {
+      case "HIGH": return AppTheme.accent;
+      case "MEDIUM": return AppTheme.warning;
+      case "LOW": return AppTheme.primary;
+      default: return AppTheme.textMedium;
+    }
+  }
+
+  IconData _riskIcon(String risk) {
+    switch (risk) {
+      case "HIGH": return Icons.dangerous;
+      case "MEDIUM": return Icons.warning;
+      case "LOW": return Icons.check_circle;
+      default: return Icons.help;
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final hosts = _hostsMap.values.toList()
+      ..sort((a, b) => b.riskLevel.compareTo(a.riskLevel));
+
     return Column(
       children: [
         // Header Card
@@ -128,14 +138,14 @@ class _LanScreenState extends State<LanScreen> {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text("MY IP ADDRESS", style: TextStyle(color: AppTheme.textMedium, fontSize: 12)),
+                    const Text("MI IP", style: TextStyle(color: AppTheme.textMedium, fontSize: 12)),
                     Text(_myIp, style: const TextStyle(fontFamily: 'JetBrains Mono', fontSize: 16, fontWeight: FontWeight.bold, color: AppTheme.textHigh)),
                   ],
                 ),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    const Text("TARGET SUBNET", style: TextStyle(color: AppTheme.textMedium, fontSize: 12)),
+                    const Text("SUBRED", style: TextStyle(color: AppTheme.textMedium, fontSize: 12)),
                     Row(
                       children: [
                         Text("$_subnet.x", style: const TextStyle(fontFamily: 'JetBrains Mono', fontSize: 16, fontWeight: FontWeight.bold, color: AppTheme.primary)),
@@ -143,7 +153,7 @@ class _LanScreenState extends State<LanScreen> {
                         IconButton(
                           icon: const Icon(Icons.delete_sweep, color: AppTheme.accent, size: 20),
                           onPressed: _clearResults,
-                          tooltip: "Clear Results",
+                          tooltip: "Limpiar",
                         )
                       ],
                     ),
@@ -153,11 +163,11 @@ class _LanScreenState extends State<LanScreen> {
             ),
           ),
         ),
-        
+
         if (_isScanning)
           const Padding(
              padding: EdgeInsets.symmetric(horizontal: 16.0),
-             child: Text("Scanning 12 common ports (IoT, Web, Media)...", style: TextStyle(color: AppTheme.primary, fontSize: 12)),
+             child: Text("Escaneando 15 puertos (IoT, Web, SSH, SMB, Telnet)...", style: TextStyle(color: AppTheme.primary, fontSize: 12)),
           ),
 
         // Scan Button
@@ -168,11 +178,11 @@ class _LanScreenState extends State<LanScreen> {
                 children: [
                     const LinearProgressIndicator(color: AppTheme.primary, backgroundColor: AppTheme.textDim),
                     const SizedBox(height: 8),
-                    const Text("Deep Scanning (IoT Ports + Native mDNS)...", style: TextStyle(color: AppTheme.primary, fontSize: 10)),
+                    const Text("Deep scan (TCP + mDNS)...", style: TextStyle(color: AppTheme.primary, fontSize: 10)),
                     const SizedBox(height: 8),
                     OutlinedButton(
                        onPressed: _stopScan,
-                       child: const Text("STOP SCAN"),
+                       child: const Text("DETENER"),
                     )
                 ]
              ),
@@ -185,7 +195,7 @@ class _LanScreenState extends State<LanScreen> {
                child: ElevatedButton.icon(
                  onPressed: _startScan,
                  icon: const Icon(Icons.radar),
-                 label: const Text("START DEEP SCAN (NSD)"),
+                 label: const Text("INICIAR DEEP SCAN"),
                ),
              ),
            ),
@@ -194,46 +204,47 @@ class _LanScreenState extends State<LanScreen> {
 
         // Results List
         Expanded(
-          child: _hosts.isEmpty && !_isScanning 
+          child: hosts.isEmpty && !_isScanning
               ? Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                        Text("PRESS SCAN TO START", style: TextStyle(color: AppTheme.textMedium)),
-                        SizedBox(height: 10),
-                        Text("Subnet: $_subnet.0/24", style: TextStyle(color: AppTheme.textDim, fontSize: 10, fontFamily: 'JetBrains Mono')),
-                        if (_hosts.isEmpty)
-                             Padding(
-                               padding: const EdgeInsets.only(top: 8.0),
-                               child: Text("No devices found? Check Permissions or AP Isolation.", style: TextStyle(color: AppTheme.accent, fontSize: 10)),
-                             )
+                        Text("PULSA SCAN PARA EMPEZAR", style: TextStyle(color: AppTheme.textMedium)),
+                        const SizedBox(height: 10),
+                        Text("Subred: $_subnet.0/24", style: const TextStyle(color: AppTheme.textDim, fontSize: 10, fontFamily: 'JetBrains Mono')),
                     ],
                   )
                 )
               : ListView.builder(
-                  itemCount: _hosts.length,
+                  itemCount: hosts.length,
                   itemBuilder: (context, index) {
-                    final host = _hosts[index];
+                    final host = hosts[index];
                     final isGateway = host.ip.endsWith(".1");
-                    final isMdns = host.source == "mDNS";
-                    final displayName = (host.name != null && host.name != host.ip) ? host.name! : "Generic Device";
+                    final hasPorts = host.openPorts.isNotEmpty;
+                    final risk = host.riskLevel;
 
                     return Card(
                       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      child: ListTile(
+                      child: ExpansionTile(
                         leading: Icon(
-                            isGateway ? Icons.router : (isMdns ? Icons.cast_connected : Icons.desktop_windows), 
-                            color: isGateway ? AppTheme.warning : (isMdns ? Colors.pinkAccent : AppTheme.accent)
+                            _riskIcon(risk),
+                            color: _riskColor(risk),
                         ),
-                        title: Text(displayName, style: const TextStyle(fontWeight: FontWeight.bold, fontFamily: 'JetBrains Mono')),
+                        title: Text(
+                          (host.name != null && host.name != host.ip) ? host.name! : "Dispositivo",
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontFamily: 'JetBrains Mono'),
+                        ),
                         subtitle: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                                 Text(host.ip, style: const TextStyle(fontSize: 11, color: AppTheme.textMedium)),
-                                Text("Source: ${host.source}", style: TextStyle(fontSize: 10, color: isMdns ? Colors.pinkAccent : Colors.greenAccent)),
+                                if (hasPorts)
+                                  Text("${host.openPorts.length} puertos abiertos",
+                                    style: TextStyle(fontSize: 10, color: _riskColor(risk), fontWeight: FontWeight.bold)),
+                                Text("Origen: ${host.source}", style: TextStyle(fontSize: 9, color: AppTheme.textDim)),
                             ]
                         ),
-                        trailing: isGateway 
+                        trailing: isGateway
                             ? Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                 decoration: BoxDecoration(
@@ -242,12 +253,53 @@ class _LanScreenState extends State<LanScreen> {
                                   borderRadius: BorderRadius.circular(4)
                                 ),
                                 child: const Text("GATEWAY", style: TextStyle(
-                                  color: AppTheme.warning, 
-                                  fontSize: 10, 
+                                  color: AppTheme.warning,
+                                  fontSize: 10,
                                   fontWeight: FontWeight.bold
                                 )),
                               )
-                            : null,
+                            : (risk != "NONE" ? Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: _riskColor(risk).withOpacity(0.2),
+                                  border: Border.all(color: _riskColor(risk)),
+                                  borderRadius: BorderRadius.circular(4)
+                                ),
+                                child: Text(risk, style: TextStyle(color: _riskColor(risk), fontSize: 9, fontWeight: FontWeight.bold)),
+                              ) : null),
+                        children: [
+                          if (hasPorts)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text("PUERTOS ABIERTOS", style: TextStyle(fontSize: 10, color: AppTheme.textMedium, fontWeight: FontWeight.bold)),
+                                  const SizedBox(height: 4),
+                                  Wrap(
+                                    spacing: 6,
+                                    runSpacing: 4,
+                                    children: host.openPorts.map((port) {
+                                      final svc = HostModel.portToService(port);
+                                      final isRisky = port == 23 || port == 445;
+                                      return Chip(
+                                        label: Text("$port $svc", style: TextStyle(fontSize: 10, color: isRisky ? AppTheme.accent : AppTheme.textHigh)),
+                                        backgroundColor: isRisky ? AppTheme.accent.withOpacity(0.15) : AppTheme.secondary.withOpacity(0.3),
+                                        side: BorderSide(color: isRisky ? AppTheme.accent.withOpacity(0.5) : Colors.transparent),
+                                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                        visualDensity: VisualDensity.compact,
+                                      );
+                                    }).toList(),
+                                  ),
+                                ],
+                              ),
+                            )
+                          else
+                            const Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                              child: Text("Sin puertos abiertos detectados", style: TextStyle(fontSize: 11, color: AppTheme.textDim)),
+                            ),
+                        ],
                       ),
                     );
                   },

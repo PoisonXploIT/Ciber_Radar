@@ -1,4 +1,3 @@
-
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/cell_service.dart';
@@ -13,7 +12,7 @@ class CellScreen extends StatefulWidget {
 
 class _CellScreenState extends State<CellScreen> {
   final CellService _cellService = CellService();
-  
+
   List<CellTowerModel> _cells = [];
   StreamSubscription? _subscription;
   bool _loading = true;
@@ -33,7 +32,6 @@ class _CellScreenState extends State<CellScreen> {
   }
 
   void _startListening() {
-    // Reset state
     setState(() {
       _loading = true;
       _error = null;
@@ -42,19 +40,17 @@ class _CellScreenState extends State<CellScreen> {
     _subscription = _cellService.startMonitoring().listen(
       (incomingCells) {
         if (!mounted) return;
-        
+
         setState(() {
           _loading = false;
-          // Pulse effect
           _blink = !_blink;
-          
-          // Sort: Connected first, then strongest
+
           incomingCells.sort((a, b) {
              if (a.isRegistered && !b.isRegistered) return -1;
              if (!a.isRegistered && b.isRegistered) return 1;
              return b.dbm.compareTo(a.dbm);
           });
-          
+
           _cells = incomingCells;
         });
       },
@@ -65,36 +61,40 @@ class _CellScreenState extends State<CellScreen> {
   }
 
   void _clearList() {
+    _cellService.clearAlerts();
     setState(() {
       _cells.clear();
       _loading = true;
     });
-    // Re-trigger helps, but stream will push next update automatically
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("LIST CLEARED"), backgroundColor: AppTheme.primary));
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("DATOS Y ALERTAS BORRADOS"), backgroundColor: AppTheme.primary));
   }
 
   @override
   Widget build(BuildContext context) {
-    // Registered ID
     final connected = _cells.cast<CellTowerModel?>().firstWhere(
-        (c) => c?.isRegistered == true, 
+        (c) => c?.isRegistered == true,
         orElse: () => null
     );
-    
-    bool alarming = false;
-    if (connected != null && connected.threatLevel == ThreatLevel.HIGH) {
-       alarming = true;
-    }
+
+    final alerts = _cellService.alerts;
+
+    bool alarming = connected != null &&
+        (connected.threatLevel == ThreatLevel.HIGH || connected.threatLevel == ThreatLevel.CRITICAL);
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // HEADER
           _buildHeader(),
 
-          // EMPTY STATE (No Cells Found)
+          // IMSI ALERTS
+          if (alerts.isNotEmpty) ...[
+            ...alerts.reversed.take(5).map((alert) => _buildAlertCard(alert)),
+            const SizedBox(height: 12),
+          ],
+
+          // EMPTY STATE
           if (!_loading && _cells.isEmpty)
              Center(
                child: Padding(
@@ -105,19 +105,19 @@ class _CellScreenState extends State<CellScreen> {
                      const Icon(Icons.signal_cellular_off, size: 48, color: AppTheme.textDim),
                      const SizedBox(height: 16),
                      const Text(
-                       "NO CELL DATA FOUND", 
+                       "SIN DATOS CELULARES",
                        style: TextStyle(fontFamily: 'JetBrains Mono', fontWeight: FontWeight.bold, color: AppTheme.textMedium)
                      ),
                      const SizedBox(height: 8),
                      const Text(
-                       "1. Insert SIM Card\n2. Disable Airplane Mode\n3. Enable Location (GPS)", 
+                       "1. Inserta tarjeta SIM\n2. Desactiva modo avion\n3. Activa ubicacion (GPS)",
                        textAlign: TextAlign.center,
                        style: TextStyle(color: AppTheme.textDim, height: 1.5)
                      ),
                      const SizedBox(height: 20),
                      ElevatedButton.icon(
-                        icon: const Icon(Icons.refresh), 
-                        label: const Text("RETRY"),
+                        icon: const Icon(Icons.refresh),
+                        label: const Text("REINTENTAR"),
                         style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primary, foregroundColor: Colors.black),
                         onPressed: _startListening,
                      )
@@ -126,7 +126,7 @@ class _CellScreenState extends State<CellScreen> {
                ),
              ),
 
-          // LOADING STATE
+          // LOADING
           if (_loading && _cells.isEmpty)
              const Padding(padding: EdgeInsets.all(40), child: Center(child: CircularProgressIndicator(color: AppTheme.primary))),
 
@@ -137,28 +137,47 @@ class _CellScreenState extends State<CellScreen> {
                child: Padding(padding: const EdgeInsets.all(16.0), child: Text(_error!, style: const TextStyle(color: Colors.redAccent))),
              ),
 
-          // ALERT
+          // CRITICAL/HIGH ALERT BANNER
           if (alarming)
             Container(
               margin: const EdgeInsets.only(bottom: 20),
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Colors.red.shade900,
-                border: Border.all(color: Colors.redAccent, width: 2),
+                color: connected!.threatLevel == ThreatLevel.CRITICAL ? Colors.purple.shade900 : Colors.red.shade900,
+                border: Border.all(
+                  color: connected.threatLevel == ThreatLevel.CRITICAL ? Colors.purpleAccent : Colors.redAccent,
+                  width: 2
+                ),
                 borderRadius: BorderRadius.circular(8),
-                boxShadow: const [BoxShadow(color: Colors.redAccent, blurRadius: 10)]
+                boxShadow: [
+                  BoxShadow(
+                    color: connected.threatLevel == ThreatLevel.CRITICAL ? Colors.purpleAccent : Colors.redAccent,
+                    blurRadius: 10
+                  )
+                ]
               ),
               child: Column(
-                children: const [
-                  Icon(Icons.warning_amber_rounded, size: 48, color: Colors.white),
-                  SizedBox(height: 8),
-                  Text("DOWNGRADE ATTACK DETECTED", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
-                  Text("Force 2G (GSM) Connection Active!", style: TextStyle(color: Colors.white70)),
+                children: [
+                  Icon(
+                    connected.threatLevel == ThreatLevel.CRITICAL ? Icons.dangerous : Icons.warning_amber_rounded,
+                    size: 48, color: Colors.white
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    connected.threatLevel == ThreatLevel.CRITICAL ? "IMSI CATCHER DETECTADO" : "DOWNGRADE DETECTADO",
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)
+                  ),
+                  if (connected.threatReason != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(connected.threatReason!, style: const TextStyle(color: Colors.white70, fontSize: 12),
+                        textAlign: TextAlign.center),
+                    ),
                 ],
               ),
             ),
 
-          // MAIN GAUGE DASHBOARD
+          // MAIN GAUGE
           if (connected != null)
              _buildDashboard(connected),
 
@@ -169,15 +188,70 @@ class _CellScreenState extends State<CellScreen> {
               children: [
                 const Icon(Icons.radar, size: 16, color: AppTheme.primary),
                 const SizedBox(width: 8),
-                const Text("NEIGHBOR CELLS", style: TextStyle(color: AppTheme.primary, fontWeight: FontWeight.bold)),
+                const Text("CELDAS VECINAS", style: TextStyle(color: AppTheme.primary, fontWeight: FontWeight.bold)),
                 const Spacer(),
-                Text("${_cells.length - (connected!=null?1:0)} detected", style: const TextStyle(color: AppTheme.textDim, fontSize: 12)),
+                Text("${_cells.length - (connected!=null?1:0)} detectadas", style: const TextStyle(color: AppTheme.textDim, fontSize: 12)),
               ],
             ),
             const SizedBox(height: 10),
             ..._cells.where((c) => !c.isRegistered).map((c) => _buildNeighbor(c)).toList(),
           ]
         ],
+      ),
+    );
+  }
+
+  Widget _buildAlertCard(ImsiAlert alert) {
+    Color color;
+    IconData icon;
+    switch (alert.type) {
+      case "DOWNGRADE":
+        color = Colors.redAccent;
+        icon = Icons.dangerous;
+        break;
+      case "CELL_JUMP":
+        color = Colors.orangeAccent;
+        icon = Icons.swap_horiz;
+        break;
+      case "STRONG_2G":
+        color = Colors.deepOrangeAccent;
+        icon = Icons.signal_cellular_4_bar;
+        break;
+      case "JAMMING":
+        color = Colors.purpleAccent;
+        icon = Icons.block;
+        break;
+      default:
+        color = Colors.amber;
+        icon = Icons.warning;
+    }
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      color: color.withOpacity(0.1),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(color: color.withOpacity(0.5)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            Icon(icon, color: color, size: 24),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(alert.message, style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 2),
+                  Text("${alert.timestamp.hour}:${alert.timestamp.minute.toString().padLeft(2,'0')} - CID: ${alert.cellId} - ${alert.networkType}",
+                    style: const TextStyle(color: AppTheme.textDim, fontSize: 10)),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -191,7 +265,14 @@ class _CellScreenState extends State<CellScreen> {
           child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text("CELLULAR MONITOR v2.0", style: TextStyle(fontFamily: 'JetBrains Mono', fontWeight: FontWeight.bold, color: AppTheme.textHigh)),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text("CELLULAR MONITOR v2.0", style: TextStyle(fontFamily: 'JetBrains Mono', fontWeight: FontWeight.bold, color: AppTheme.textHigh)),
+                    if (_cellService.alerts.isNotEmpty)
+                      Text("${_cellService.alerts.length} alertas IMSI", style: const TextStyle(color: Colors.redAccent, fontSize: 10)),
+                  ],
+                ),
                 Row(
                   children: [
                     if (_blink)
@@ -199,7 +280,7 @@ class _CellScreenState extends State<CellScreen> {
                     const SizedBox(width: 10),
                     IconButton(
                         icon: const Icon(Icons.delete_sweep, color: AppTheme.accent),
-                        tooltip: "Clear List",
+                        tooltip: "Limpiar",
                         onPressed: _clearList,
                     )
                   ],
@@ -213,11 +294,13 @@ class _CellScreenState extends State<CellScreen> {
   Widget _buildDashboard(CellTowerModel cell) {
      final strength = cell.dbm;
      Color signalColor = _getSignalColor(strength);
-     Color typeColor = cell.threatLevel == ThreatLevel.SAFE ? AppTheme.primary : (cell.threatLevel == ThreatLevel.WARN ? AppTheme.warning : Colors.redAccent);
+     Color typeColor = cell.threatLevel == ThreatLevel.SAFE ? AppTheme.primary
+         : cell.threatLevel == ThreatLevel.WARN ? AppTheme.warning
+         : cell.threatLevel == ThreatLevel.HIGH ? Colors.redAccent
+         : Colors.purpleAccent;
 
      return Column(
        children: [
-         // GAUGE CARD
          Card(
            color: AppTheme.secondary.withOpacity(0.1),
            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: signalColor.withOpacity(0.5), width: 1)),
@@ -226,7 +309,6 @@ class _CellScreenState extends State<CellScreen> {
              child: Row(
                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                children: [
-                 // Left: Network Type
                  Column(
                    crossAxisAlignment: CrossAxisAlignment.start,
                    children: [
@@ -234,12 +316,16 @@ class _CellScreenState extends State<CellScreen> {
                      const SizedBox(height: 4),
                      Text(cell.type, style: TextStyle(fontFamily: 'JetBrains Mono', fontSize: 36, fontWeight: FontWeight.bold, color: typeColor)),
                      if (cell.type == "NR")
-                        const Text("5G NSA/SA", style: TextStyle(color: AppTheme.primary, fontSize: 12, fontWeight: FontWeight.bold)),
+                        const Text("5G NR", style: TextStyle(color: AppTheme.primary, fontSize: 12, fontWeight: FontWeight.bold)),
                      if (cell.type == "LTE")
                         const Text("4G LTE", style: TextStyle(color: AppTheme.textMedium, fontSize: 12)),
+                     if (cell.threatReason != null && cell.threatLevel != ThreatLevel.SAFE)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(cell.threatReason!, style: TextStyle(color: typeColor, fontSize: 10)),
+                        ),
                    ],
                  ),
-                 // Right: Signal Gauge
                  Column(
                    crossAxisAlignment: CrossAxisAlignment.end,
                    children: [
@@ -252,12 +338,11 @@ class _CellScreenState extends State<CellScreen> {
            ),
          ),
          const SizedBox(height: 12),
-         // DETAILS GRID
          Row(
            children: [
              Expanded(child: _buildDetailCard("CID", "${cell.cid}")),
              const SizedBox(width: 8),
-             Expanded(child: _buildDetailCard("LAC", "${cell.lac}")),
+             Expanded(child: _buildDetailCard("LAC/TAC", "${cell.lac}")),
            ],
          )
        ],
@@ -298,11 +383,11 @@ class _CellScreenState extends State<CellScreen> {
            ],
          ),
        ),
-    ); 
+    );
   }
 
   Color _getSignalColor(int dbm) {
-     if (dbm > -90) return Colors.greenAccent; 
+     if (dbm > -90) return Colors.greenAccent;
      if (dbm > -110) return Colors.yellowAccent;
      return Colors.redAccent;
   }

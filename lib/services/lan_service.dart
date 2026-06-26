@@ -1,4 +1,3 @@
-
 import 'dart:async';
 import 'dart:io';
 import 'package:network_info_plus/network_info_plus.dart';
@@ -8,9 +7,9 @@ import '../models/host_model.dart';
 class LanService {
   final NetworkInfo _networkInfo = NetworkInfo();
 
-  // Expanded IoT Port list
   static const List<int> scanPorts = [
        80, 443, 22, 53, // Web/SSH/DNS
+       445, 23, // SMB / Telnet
        8080, 8008, 8009, // Web Proxies & Chromecast
        9100, // Printers
        5000, 1900, // UPnP / NAS
@@ -29,137 +28,121 @@ class LanService {
   }
 
   /// Scans using both Deep TCP Port check and Native Service Discovery (NSD).
-  /// Returns a Stream of HostModel.
+  /// Returns a Stream of HostModel with open ports.
   Stream<HostModel> scan(String subnet, {
-    List<int> ports = scanPorts, 
+    List<int> ports = scanPorts,
   }) {
     if (subnet.isEmpty || subnet == "0.0.0.0") {
        throw Exception("Invalid Subnet");
     }
 
     final controller = StreamController<HostModel>();
-    final Set<String> _foundIps = {};
+    final Map<String, HostModel> _foundHosts = {};
 
-    print("STARTING DEEP SCAN on Subnet: $subnet. Ports: ${ports.length}");
-
-    // 1. Start NSD (Native Service Discovery)
-    _startNsdScan(controller, _foundIps);
-
-    // 2. Start Deep TCP Scan
-    _startTcpScan(subnet, ports, controller, _foundIps);
+    _startNsdScan(controller, _foundHosts);
+    _startTcpScan(subnet, ports, controller, _foundHosts);
 
     return controller.stream;
   }
 
   Future<void> _startTcpScan(
-      String subnet, 
-      List<int> ports, 
+      String subnet,
+      List<int> ports,
       StreamController<HostModel> controller,
-      Set<String> foundIps
+      Map<String, HostModel> foundHosts
   ) async {
-    // Timeout increased for reliability
     const timeout = Duration(milliseconds: 500);
 
     for (int i = 1; i < 255; i++) {
         if (controller.isClosed) break;
         final host = '$subnet.$i';
-        
-        _checkHost(host, ports, timeout).then((isOpen) async {
-          if (isOpen && !controller.isClosed) {
-            if (!foundIps.contains(host)) {
-               print("FOUND VALID HOST (TCP): $host");
-               foundIps.add(host);
-               
-               // Try Reverse DNS
-               String? hostname;
-               try {
-                  final InternetAddress addr = InternetAddress(host);
-                  final reverse = await addr.reverse();
-                  hostname = reverse.host;
-               } catch (e) {
-                  // Lookup failed
-               }
 
-               controller.add(HostModel(ip: host, name: hostname, source: "TCP"));
+        _scanHostPorts(host, ports, timeout).then((result) async {
+          if (result.isNotEmpty && !controller.isClosed) {
+            // Try Reverse DNS
+            String? hostname;
+            try {
+              final InternetAddress addr = InternetAddress(host);
+              final reverse = await addr.reverse();
+              hostname = reverse.host;
+            } catch (e) {
+              // Lookup failed
             }
+
+            final hostModel = HostModel(
+              ip: host,
+              name: hostname,
+              source: "TCP",
+              openPorts: result.keys.toList()..sort(),
+              portServices: result.values.toList(),
+            );
+
+            foundHosts[host] = hostModel;
+            controller.add(hostModel);
           }
         });
-        
-        // Slight throttle
+
         if (i % 10 == 0) await Future.delayed(const Duration(milliseconds: 20));
     }
   }
 
-  Future<bool> _checkHost(String host, List<int> ports, Duration timeout) async {
+  /// Scan all ports for a host, return map of port -> service name
+  Future<Map<int, String>> _scanHostPorts(String host, List<int> ports, Duration timeout) async {
+    final Map<int, String> openPorts = {};
+
     for (final port in ports) {
       try {
         final socket = await Socket.connect(host, port, timeout: timeout);
         socket.destroy();
-        return true; 
+        openPorts[port] = HostModel.portToService(port);
       } catch (e) {
-        // next
+        // Port closed or filtered
       }
     }
-    return false;
+
+    return openPorts;
   }
 
-  Future<void> _startNsdScan(StreamController<HostModel> controller, Set<String> foundIps) async {
+  Future<void> _startNsdScan(
+      StreamController<HostModel> controller,
+      Map<String, HostModel> foundHosts
+  ) async {
     final servicesToScan = [
       '_http._tcp',
-      '_googlecast._tcp', 
-      '_ipp._tcp', // Printers
+      '_googlecast._tcp',
+      '_ipp._tcp',
+      '_smb._tcp',
+      '_ssh._tcp',
     ];
-    
+
     final List<nsd.Discovery> discoveries = [];
 
     try {
       for (final serviceType in servicesToScan) {
          if (controller.isClosed) break;
-         
+
          final discovery = await nsd.startDiscovery(serviceType);
          discoveries.add(discovery);
-         
+
          discovery.addServiceListener((service, status) async {
             if (status == nsd.ServiceStatus.found) {
-               // We need to resolve to get IP/Port usually, but nsd sends basic info. 
-               // Often we need to stop discovery or resolve explicitly if IP is missing.
-               
-               // Note: 'nsd' package usually provides service name/host in the discovery object 
-               // but sometimes requires explicit resolve.
-               
-               // Attempt to resolve if we have a handle
-               // However, simple discovery might give us the host.
-               
-               // For this implementation, we mostly get name and host info.
-               // We will try to resolve it.
                var resolvedService = service;
-               
-               // Only resolve if needed (usually IP might be missing)
+
+               // Try to resolve if IP is missing
                if (service.host == null) {
-                  // Resolve not explicitly supported on 'found' object in all versions, 
-                  // but 'nsd' package has resolve(service).
                   try {
-                     // Note: Resolve can take time.
-                     // resolvedService = await nsd.resolve(service); // This blocks? 
-                     // Let's rely on basic info first or do it async.
+                     resolvedService = await nsd.resolve(service);
                   } catch(e) {
                      // resolve fail
                   }
                }
 
-               // Extract IP
-               // 'nsd' 2.0.0: service.host is String?, service.port is int?
-               // Some implementations might not give IP in 'host', but hostname.
-               // If it's a hostname, we might need InternetAddress.lookup
-
                if (resolvedService.host != null) {
                   String ipStr = resolvedService.host!;
-                  
-                  // Check if it's an IP or Hostname.
+
                   bool isIp = InternetAddress.tryParse(ipStr) != null;
-                  
+
                   if (!isIp) {
-                     // Try to resolve hostname to IP
                      try {
                         final ips = await InternetAddress.lookup(ipStr);
                         if (ips.isNotEmpty) {
@@ -170,37 +153,50 @@ class LanService {
                      }
                   }
 
-                  if (!foundIps.contains(ipStr) && InternetAddress.tryParse(ipStr) != null) {
-                      print("FOUND VALID HOST (NSD): $ipStr (${resolvedService.name})");
-                      foundIps.add(ipStr);
-                      controller.add(HostModel(
-                        ip: ipStr, 
-                        name: resolvedService.name, 
-                        source: "NSD (${serviceType.replaceAll('._tcp', '')})"
-                      ));
+                  if (InternetAddress.tryParse(ipStr) != null) {
+                     // Determine port from NSD service
+                     List<int> nsdPorts = [];
+                     if (resolvedService.port != null) {
+                       nsdPorts.add(resolvedService.port!);
+                     }
+
+                     final hostModel = HostModel(
+                       ip: ipStr,
+                       name: resolvedService.name,
+                       source: "NSD (${serviceType.replaceAll('._tcp', '')})",
+                       openPorts: nsdPorts,
+                       portServices: nsdPorts.map((p) => HostModel.portToService(p)).toList(),
+                     );
+
+                     // Merge with existing or add new
+                     if (foundHosts.containsKey(ipStr)) {
+                       final existing = foundHosts[ipStr]!;
+                       final mergedPorts = {...existing.openPorts, ...nsdPorts}.toList()..sort();
+                       foundHosts[ipStr] = HostModel(
+                         ip: existing.ip,
+                         name: hostModel.name ?? existing.name,
+                         source: "TCP+NSD",
+                         openPorts: mergedPorts,
+                         portServices: mergedPorts.map((p) => HostModel.portToService(p)).toList(),
+                       );
+                       controller.add(foundHosts[ipStr]!);
+                     } else {
+                       foundHosts[ipStr] = hostModel;
+                       controller.add(hostModel);
+                     }
                   }
                }
             }
          });
       }
     } catch (e) {
-      print("NSD Error: $e");
+      // NSD Error -- continue silently
     }
-    
-    // Auto-stop NSD when controller closes?
-    // We can't easily detect controller close here unless we wrap the controller or check periodically.
-    // Instead, we should probably keep track of discoveries and provide a dispose method, 
-    // but LanService 'scan' is one-off. 
-    // Best effort: Stop after a fixed duration (reasonable for LAN scan) or when loop finishes.
-    
-    // Let's stop NSD after TCP scan is likely done (e.g. 60 seconds) or if we want continuous, we leave it.
-    // But 'scan' returns a stream. The caller can cancel subscription. The controller onCancel can be used!
-    
+
     controller.onCancel = () async {
         for (final d in discoveries) {
             await nsd.stopDiscovery(d);
         }
-        print("NSD Stopped.");
     };
   }
 }

@@ -7,6 +7,7 @@ import android.telephony.CellInfoGsm
 import android.telephony.CellInfoLte
 import android.telephony.CellInfoWcdma
 import android.telephony.CellInfoNr
+import android.telephony.CellIdentityNr
 import android.telephony.CellSignalStrengthNr
 import android.telephony.PhoneStateListener
 import android.telephony.SignalStrength
@@ -96,9 +97,9 @@ class MainActivity: FlutterActivity() {
     }
 
     // TelephonyCallback for Android 12+
-    private inner class TelephonyCallbackImpl : TelephonyCallback,
+    private inner class TelephonyCallbackImpl : TelephonyCallback(),
         TelephonyCallback.SignalStrengthsListener {
-        override fun onSignalStrengthsChanged(signalStrength: SignalStrength?) {
+        override fun onSignalStrengthsChanged(signalStrength: SignalStrength) {
             val cells = getCells()
             if (cells != null && eventSink != null) {
                 eventSink!!.success(cells)
@@ -153,7 +154,7 @@ class MainActivity: FlutterActivity() {
                 } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && info is CellInfoNr) {
                     // Real 5G NR support -- no more fake data
                     data["type"] = "NR"
-                    val nrIdentity = info.cellIdentity
+                    val nrIdentity = info.cellIdentity as CellIdentityNr
                     val nrSignal = info.cellSignalStrength as CellSignalStrengthNr
                     data["nci"] = nrIdentity.nci
                     data["pci"] = nrIdentity.pci
