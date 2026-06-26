@@ -139,7 +139,7 @@ class ScannerService {
     if (_lastWifiScanTime != null) {
       final diff = DateTime.now().difference(_lastWifiScanTime!);
       if (diff < wifiScanInterval) {
-        return CanStartScan.notYet;
+        return canStart; // Return current status, skip scan
       }
     }
     final result = await WiFiScan.instance.startScan();
