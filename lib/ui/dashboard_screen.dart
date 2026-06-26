@@ -1,6 +1,4 @@
-
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart';
 import '../services/scanner_service.dart';
 import '../services/location_service.dart';
 import 'theme.dart';
@@ -29,9 +27,9 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
     _radarController = AnimationController(
        vsync: this,
        duration: const Duration(seconds: 2),
-    )..addListener(() { setState((){}); }); // Trigger rebuild for radar
-    
-    // Listeners
+    );
+    // No addListener + setState -- use AnimatedBuilder in build()
+
     widget.scannerService.wifiCountStream.listen((count) {
       if (mounted) setState(() => _wifiCount = count);
     });
@@ -57,28 +55,22 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
     setState(() => _scanning = !_scanning);
     if (_scanning) {
         _radarController.repeat();
-        // Start scans
-        widget.scannerService.startWifiScan(); // Trigger one scan
-        widget.scannerService.startBleScan(); // Trigger one scan
-        // In a real app we might want a periodic timer here to re-trigger
-        // But for MVP one-shot or manual re-trigger is basic.
-        // User asked for "Scanning Status Indicator (handling throttling)".
-        // We will assume the user presses button repeatedly or we implement a loop?
-        // App requirements: "implement a visible countdown timer or progress bar showing when the next scan is available."
-        // We will add a timer logic later. For now, basic toggle.
+        await widget.scannerService.startWifiScan();
+        await widget.scannerService.startBleScan();
     } else {
         _radarController.stop();
-        widget.scannerService.stopBleScan();
+        await widget.scannerService.stopBleScan();
+        widget.scannerService.stopWifiScan();
     }
   }
 
   void _exportData() async {
       final exportService = ExportService();
       String? path = await exportService.exportSession(
-        widget.scannerService.sessionWifiList, 
+        widget.scannerService.sessionWifiList,
         widget.scannerService.sessionBleList
       );
-      
+
       if (mounted) {
          if (path != null) {
             ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("EXPORTADO A: $path", style: const TextStyle(color: AppTheme.background)), backgroundColor: AppTheme.primary));
@@ -94,7 +86,7 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          // RADAR VISUALIZATION
+          // RADAR VISUALIZATION -- use AnimatedBuilder to avoid 60fps setState
           Stack(
             alignment: Alignment.center,
             children: [
@@ -113,8 +105,14 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
                  ),
                ),
                if (_scanning)
-                 Transform.rotate(
-                   angle: _radarController.value * 6.28,
+                 AnimatedBuilder(
+                   animation: _radarController,
+                   builder: (context, child) {
+                     return Transform.rotate(
+                       angle: _radarController.value * 6.28,
+                       child: child,
+                     );
+                   },
                    child: Container(
                      width: 240, height: 240,
                      decoration: const BoxDecoration(
@@ -129,13 +127,13 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
                Column(
                  children: [
                    const Icon(Icons.radar, size: 50, color: AppTheme.primary),
-                   Text(_scanning ? "ESCANENDO" : "INACTIVO", style: const TextStyle(color: AppTheme.primary, fontWeight: FontWeight.bold)),
+                   Text(_scanning ? "ESCANEANDO" : "INACTIVO", style: const TextStyle(color: AppTheme.primary, fontWeight: FontWeight.bold)),
                  ],
                ),
             ],
           ),
           const SizedBox(height: 30),
-          
+
           // STATS
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -146,9 +144,9 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
           ),
           const SizedBox(height: 10),
           Text("GPS: $_gpsAccuracy", style: Theme.of(context).textTheme.bodyMedium),
-          
+
           const SizedBox(height: 30),
-          
+
           // CONTROLS
           Row(
             mainAxisAlignment: MainAxisAlignment.center,

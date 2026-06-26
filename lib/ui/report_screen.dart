@@ -1,25 +1,42 @@
-
 import 'package:flutter/material.dart';
 import 'theme.dart';
 import '../services/report_service.dart';
+import '../services/scanner_service.dart';
+import '../services/lan_service.dart';
+import '../services/cell_service.dart';
+import '../services/sensor_service.dart';
 
 class ReportScreen extends StatefulWidget {
-  const ReportScreen({super.key});
+  final ScannerService scannerService;
+
+  const ReportScreen({super.key, required this.scannerService});
 
   @override
   State<ReportScreen> createState() => _ReportScreenState();
 }
 
 class _ReportScreenState extends State<ReportScreen> {
-  final ReportService _reportService = ReportService();
+  late final ReportService _reportService;
   bool _scanning = false;
-  String _status = "READY TO AUDIT";
+  String _status = "LISTO PARA AUDITAR";
   double _progress = 0.0;
+
+  @override
+  void initState() {
+    super.initState();
+    // Use shared scanner service -- not a new instance
+    _reportService = ReportService(
+      scannerService: widget.scannerService,
+      lanService: LanService(),
+      cellService: CellService(),
+      sensorService: SensorService(),
+    );
+  }
 
   void _startAudit() async {
     setState(() {
       _scanning = true;
-      _status = "INITIALIZING...";
+      _status = "INICIALIZANDO...";
       _progress = 0.1;
     });
 
@@ -32,18 +49,22 @@ class _ReportScreenState extends State<ReportScreen> {
          });
       });
       setState(() {
-         _status = "AUDIT COMPLETE";
+         _status = "AUDITORIA COMPLETADA";
          _progress = 1.0;
          _scanning = false;
       });
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("PDF Generated & Exported Successfully"), backgroundColor: Colors.green));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("PDF generado y exportado"), backgroundColor: Colors.green));
+      }
     } catch (e) {
       setState(() {
         _status = "ERROR: $e";
         _scanning = false;
         _progress = 0.0;
       });
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red));
+      }
     }
   }
 
@@ -55,20 +76,19 @@ class _ReportScreenState extends State<ReportScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
            const SizedBox(height: 20),
-           // Header
            const Icon(Icons.security, size: 80, color: AppTheme.primary),
            const SizedBox(height: 16),
            const Text(
-             "THE AUDITOR", 
+             "THE AUDITOR",
              textAlign: TextAlign.center,
              style: TextStyle(fontFamily: 'JetBrains Mono', fontSize: 32, fontWeight: FontWeight.bold, color: AppTheme.textHigh)
            ),
            const Text(
-             "UNIFIED SECURITY EVIDENCE", 
+             "EVIDENCIA DE SEGURIDAD UNIFICADA",
              textAlign: TextAlign.center,
              style: TextStyle(fontSize: 12, color: AppTheme.textDim, letterSpacing: 2)
            ),
-           
+
            const SizedBox(height: 48),
 
            // Status Circle
@@ -91,7 +111,7 @@ class _ReportScreenState extends State<ReportScreen> {
                       Icon(_scanning ? Icons.radar : Icons.verified_user_outlined, size: 48, color: _scanning ? AppTheme.accent : AppTheme.textDim),
                       const SizedBox(height: 12),
                       Text(
-                        _scanning ? "${(_progress * 100).toInt()}%" : "IDLE", 
+                        _scanning ? "${(_progress * 100).toInt()}%" : "IDLE",
                         style: const TextStyle(fontFamily: 'JetBrains Mono', fontSize: 24, fontWeight: FontWeight.bold)
                       ),
                    ],
@@ -101,16 +121,16 @@ class _ReportScreenState extends State<ReportScreen> {
            ),
 
            const SizedBox(height: 32),
-           
+
            Container(
              padding: const EdgeInsets.all(16),
              decoration: BoxDecoration(
-               color: Colors.black26, 
+               color: Colors.black26,
                borderRadius: BorderRadius.circular(8),
                border: Border.all(color: AppTheme.primary.withOpacity(0.3))
              ),
              child: Text(
-               _status, 
+               _status,
                textAlign: TextAlign.center,
                style: const TextStyle(fontFamily: 'JetBrains Mono', color: AppTheme.primary)
              ),
@@ -126,12 +146,12 @@ class _ReportScreenState extends State<ReportScreen> {
                padding: const EdgeInsets.symmetric(vertical: 20),
                textStyle: const TextStyle(fontFamily: 'JetBrains Mono', fontSize: 18, fontWeight: FontWeight.bold)
              ),
-             child: Text(_scanning ? "AUDIT IN PROGRESS..." : "START FULL AUDIT"),
+             child: Text(_scanning ? "AUDIT EN PROGRESO..." : "INICIAR AUDIT COMPLETO"),
            ),
-           
+
            const SizedBox(height: 16),
            const Text(
-             "Generates a comprehensive PDF report including WiFi, BLE, Cellular, and LAN analysis.",
+             "Genera un reporte PDF completo con analisis de WiFi, BLE, redes celulares y LAN.",
              textAlign: TextAlign.center,
              style: TextStyle(color: AppTheme.textDim, fontSize: 12)
            )

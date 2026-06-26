@@ -1,4 +1,3 @@
-
 import 'dart:async';
 import 'package:wifi_scan/wifi_scan.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
@@ -8,32 +7,32 @@ import '../models/bluetooth_entity.dart';
 import '../services/oui_service.dart';
 
 class ScannerService {
-  // WiFi State
   bool _isWifiScanning = false;
   DateTime? _lastWifiScanTime;
-  static const Duration wifiScanInterval = Duration(seconds: 30);
+  static const Duration wifiScanInterval = Duration(seconds: 15);
 
-  // State for tracking unique devices in session
   final Set<String> _uniqueWifiBssids = {};
   final Set<String> _uniqueBleMacs = {};
-  
-  // Controllers for Session Counts
+
   final _wifiCountController = StreamController<int>.broadcast();
   final _bleCountController = StreamController<int>.broadcast();
-
-  // Controllers for Results (Allows Clearing)
   final _wifiResultsController = StreamController<List<WifiEntity>>.broadcast();
   final _bleResultsController = StreamController<List<BluetoothEntity>>.broadcast();
+
+  final List<WifiEntity> _sessionWifiDevices = [];
+  final List<BluetoothEntity> _sessionBleDevices = [];
+
+  StreamSubscription? _wifiSub;
+  StreamSubscription? _bleSub;
 
   ScannerService() {
     _initStreams();
   }
 
   void _initStreams() {
-    // WiFi Listener
-    WiFiScan.instance.onScannedResultsAvailable.listen((results) async {
+    _wifiSub = WiFiScan.instance.onScannedResultsAvailable.listen((results) async {
         final position = await _getCurrentLocation();
-        
+
         final List<WifiEntity> entities = results.map((result) {
           return WifiEntity(
             ssid: result.ssid,
@@ -57,23 +56,22 @@ class ScannerService {
         _wifiResultsController.add(entities);
     });
 
-    // BLE Listener
-    FlutterBluePlus.scanResults.listen((results) async {
+    _bleSub = FlutterBluePlus.scanResults.listen((results) async {
        final position = await _getCurrentLocation();
-       
+
        final List<BluetoothEntity> entities = results.map((r) {
          return BluetoothEntity(
            name: r.device.platformName.isNotEmpty ? r.device.platformName : "DESCONOCIDO",
            mac: r.device.remoteId.str,
            rssi: r.rssi,
-           type: "BLE", 
+           type: "BLE",
            manufacturer: OuiService.lookup(r.device.remoteId.str, deviceName: r.device.platformName.isNotEmpty ? r.device.platformName : null),
            latitude: position?.latitude,
            longitude: position?.longitude,
            timestamp: DateTime.now(),
          );
        }).toList();
-       
+
        for (var e in entities) {
           if (_uniqueBleMacs.add(e.mac)) {
               _sessionBleDevices.add(e);
@@ -91,30 +89,42 @@ class ScannerService {
       _sessionBleDevices.clear();
       _wifiCountController.add(0);
       _bleCountController.add(0);
-      
-      // Clear visible lists
       _wifiResultsController.add([]);
       _bleResultsController.add([]);
   }
 
   Stream<int> get wifiCountStream => _wifiCountController.stream;
   Stream<int> get bleCountStream => _bleCountController.stream;
-  
   Stream<List<WifiEntity>> get wifiResultsStream => _wifiResultsController.stream;
   Stream<List<BluetoothEntity>> get bleResultsStream => _bleResultsController.stream;
 
-  Set<WifiEntity> _sessionWifiDevices = {};
-  Set<BluetoothEntity> _sessionBleDevices = {};
-  
-  List<WifiEntity> get sessionWifiList => _sessionWifiDevices.toList();
-  List<BluetoothEntity> get sessionBleList => _sessionBleDevices.toList();
+  List<WifiEntity> get sessionWifiList => List.from(_sessionWifiDevices);
+  List<BluetoothEntity> get sessionBleList => List.from(_sessionBleDevices);
 
+  /// Get fresh GPS position (not stale getLastKnownPosition)
   Future<Position?> _getCurrentLocation() async {
     try {
-      Position? position = await Geolocator.getLastKnownPosition();
-      return position;
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) return null;
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) return null;
+      }
+      if (permission == LocationPermission.deniedForever) return null;
+
+      return await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.low,
+        timeLimit: const Duration(seconds: 3),
+      );
     } catch (e) {
-      return null;
+      // Fallback to last known if fresh request fails
+      try {
+        return await Geolocator.getLastKnownPosition();
+      } catch (_) {
+        return null;
+      }
     }
   }
 
@@ -125,10 +135,11 @@ class ScannerService {
     if (canStart != CanStartScan.yes) {
       return canStart;
     }
+    // Real throttle: skip if scanned recently
     if (_lastWifiScanTime != null) {
       final diff = DateTime.now().difference(_lastWifiScanTime!);
       if (diff < wifiScanInterval) {
-         // throttle
+        return CanStartScan.notYet;
       }
     }
     final result = await WiFiScan.instance.startScan();
@@ -139,6 +150,10 @@ class ScannerService {
     return canStart;
   }
 
+  void stopWifiScan() {
+    _isWifiScanning = false;
+  }
+
   // Bluetooth Methods
   Future<void> startBleScan() async {
     await FlutterBluePlus.startScan(timeout: const Duration(seconds: 4));
@@ -147,6 +162,16 @@ class ScannerService {
   Future<void> stopBleScan() async {
     await FlutterBluePlus.stopScan();
   }
-  
+
   Stream<bool> get isBleScanning => FlutterBluePlus.isScanning;
+
+  /// Proper cleanup
+  void dispose() {
+    _wifiSub?.cancel();
+    _bleSub?.cancel();
+    _wifiCountController.close();
+    _bleCountController.close();
+    _wifiResultsController.close();
+    _bleResultsController.close();
+  }
 }

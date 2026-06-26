@@ -40,7 +40,7 @@ class _MainScreenState extends State<MainScreen> {
       const MagneticScreen(),
       const LanScreen(),
       const CellScreen(),
-      const ReportScreen(), // v3.0
+      ReportScreen(scannerService: _scannerService),
     ];
     _checkPermissions();
   }

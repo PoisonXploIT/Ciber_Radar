@@ -25,28 +25,19 @@ class _WifiScreenState extends State<WifiScreen> {
   }
 
   Color _getSecurityColor(WifiEntity wifi) {
-    final caps = wifi.capabilities.toUpperCase();
-    if (caps.contains("WEP") || (caps.contains("ESS") && !caps.contains("WPA") && !caps.contains("SAE") && !caps.contains("RSN"))) {
-       return AppTheme.accent; // Red - Insegura (Open/WEP)
-    }
-    if (caps.contains("SAE")) return Colors.greenAccent; // Green - WPA3
-    return AppTheme.textHigh; // White/Standard - WPA2/Otherwise
+    if (wifi.isVulnerable) return AppTheme.accent; // Red -- Open/WEP
+    if (wifi.isWpa3) return Colors.greenAccent; // Green -- WPA3
+    return AppTheme.textHigh; // White -- WPA2
   }
-  
+
   String _getSecurityText(WifiEntity wifi) {
-    if (wifi.isOpen) return "OPEN NETWORK";
-    if (wifi.isWep) return "WEP - LEGACY";
-    final caps = wifi.capabilities.toUpperCase();
-    if (caps.contains("SAE")) return "WPA3 - SECURE";
-    if (caps.contains("WPA")) return "WPA/WPA2";
-    return wifi.capabilities;
+    return wifi.securityType;
   }
-  
+
   IconData _getSecurityIcon(WifiEntity wifi) {
     if (wifi.isOpen) return Icons.lock_open;
     if (wifi.isWep) return Icons.no_encryption;
-    final caps = wifi.capabilities.toUpperCase();
-    if (caps.contains("SAE")) return Icons.verified_user;
+    if (wifi.isWpa3) return Icons.verified_user;
     return Icons.lock;
   }
 

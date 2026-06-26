@@ -1,8 +1,8 @@
 name: ciber_radar
-description: "A new Flutter project."
-publish_to: 'none' 
+description: "Android security audit toolkit -- WiFi, BLE, LAN, cellular, EMF, PDF reports"
+publish_to: 'none'
 
-version: 1.0.0+1
+version: 2.0.0+1
 
 environment:
   sdk: ^3.10.7
