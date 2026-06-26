@@ -67,29 +67,11 @@ class ExportService {
     Map<String, dynamic>? cellData,
     double? magneticReading,
   }) async {
-    final report = {
-      "source": "ciber_radar",
-      "version": "2.0.0",
-      "exported_at": DateTime.now().toIso8601String(),
-      "device_info": {
-        "platform": Platform.operatingSystem,
-        "os_version": Platform.operatingSystemVersion,
-      },
-      "summary": {
-        "wifi_networks": wifiList.length,
-        "wifi_vulnerable": wifiList.where((w) => w.isVulnerable).length,
-        "wifi_open": wifiList.where((w) => w.isOpen).length,
-        "wifi_wep": wifiList.where((w) => w.isWep).length,
-        "ble_devices": bleList.length,
-        "lan_hosts": lanHosts.length,
-        "lan_high_risk": lanHosts.where((h) => h.riskLevel == "HIGH").length,
-      },
-      "events": <Map<String, dynamic>>[],
-    };
+    final List<Map<String, dynamic>> events = [];
 
     // WiFi events
     for (var w in wifiList) {
-      report["events"]!.add({
+      events.add({
         "event": "wifi_scan",
         "timestamp": w.timestamp.toIso8601String(),
         "ssid": w.ssid,
@@ -108,7 +90,7 @@ class ExportService {
 
     // BLE events
     for (var b in bleList) {
-      report["events"]!.add({
+      events.add({
         "event": "ble_scan",
         "timestamp": b.timestamp.toIso8601String(),
         "name": b.name,
@@ -123,7 +105,7 @@ class ExportService {
 
     // LAN host events
     for (var h in lanHosts) {
-      report["events"]!.add({
+      events.add({
         "event": "lan_host",
         "timestamp": DateTime.now().toIso8601String(),
         "ip": h.ip,
@@ -137,7 +119,7 @@ class ExportService {
 
     // Cell data
     if (cellData != null) {
-      report["events"]!.add({
+      events.add({
         "event": "cell_scan",
         "timestamp": DateTime.now().toIso8601String(),
         ...cellData,
@@ -146,13 +128,33 @@ class ExportService {
 
     // Sensor data
     if (magneticReading != null) {
-      report["events"]!.add({
+      events.add({
         "event": "emf_reading",
         "timestamp": DateTime.now().toIso8601String(),
         "magnetic_field_ut": magneticReading,
         "anomaly": magneticReading > 100.0,
       });
     }
+
+    final report = {
+      "source": "ciber_radar",
+      "version": "2.0.0",
+      "exported_at": DateTime.now().toIso8601String(),
+      "device_info": {
+        "platform": Platform.operatingSystem,
+        "os_version": Platform.operatingSystemVersion,
+      },
+      "summary": {
+        "wifi_networks": wifiList.length,
+        "wifi_vulnerable": wifiList.where((w) => w.isVulnerable).length,
+        "wifi_open": wifiList.where((w) => w.isOpen).length,
+        "wifi_wep": wifiList.where((w) => w.isWep).length,
+        "ble_devices": bleList.length,
+        "lan_hosts": lanHosts.length,
+        "lan_high_risk": lanHosts.where((h) => h.riskLevel == "HIGH").length,
+      },
+      "events": events,
+    };
 
     final jsonString = const JsonEncoder.withIndent('  ').convert(report);
 
