@@ -71,3 +71,10 @@ This tool is intended for **authorized security auditing only**. Always obtain p
 ## License
 
 MIT License -- see [LICENSE](LICENSE) for details.
+
+---
+
+## Contacto
+
+- Pagina: [sammideblas.com](https://sammideblas.com)
+- Email: analista@sammideblas.com
